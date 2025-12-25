@@ -4,19 +4,31 @@ import com.seniorsteps.network.services.SmartReplyEngin;
 
 import java.io.*;
 import java.net.Socket;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class SocketHandler implements Runnable {
     private final Socket socketFromClient;
-    private static int counter = 0;
+    private static final AtomicInteger counter = new AtomicInteger(0);
+    public static volatile boolean hasStarted = false;
+    private static final DateTimeFormatter timeFormatter = DateTimeFormatter.ofPattern("HH:mm:ss");
 
     public static int getCounter() {
-        return counter;
+        return counter.get();
     }
 
 
     public SocketHandler(Socket clientSocket) {
         this.socketFromClient = clientSocket;
-        counter ++;
+        counter.incrementAndGet();
+        hasStarted = true;
+    }
+
+    private void log(String message) {
+        String time = LocalTime.now().format(timeFormatter);
+        String threadInfo = Thread.currentThread().toString();
+        System.out.printf("[%s] [%s] %s%n", time, threadInfo, message);
     }
 
     @Override
@@ -26,53 +38,49 @@ public class SocketHandler implements Runnable {
 
     private void handleSocket(){
         try (
-                // 2. استخدام Try-with-Resources للموارد الداخلية للعميل
                 InputStream socketFromClientInputStream = socketFromClient.getInputStream();
                 OutputStream socketFromClientOutputStream = socketFromClient.getOutputStream();
 
-                Reader r = new InputStreamReader(socketFromClientInputStream);
-                BufferedReader fromsocketFromClient = new BufferedReader(r);
+                BufferedReader fromSocketFromClient = new BufferedReader(new InputStreamReader(socketFromClientInputStream));
 
-                // 3. تفعيل auto-flush بإضافة 'true'
-                PrintWriter tosocketFromClient = new PrintWriter(socketFromClientOutputStream, true)) {
+                PrintWriter toSocketFromClient = new PrintWriter(socketFromClientOutputStream, true)) {
 
-            System.out.println("socketFromClient connected: " + socketFromClient.getInetAddress());
+            log("New connection from: " + socketFromClient.getInetAddress());
             SmartReplyEngin engin = new SmartReplyEngin();
 
-            // دورة القراءة والكتابة
-            while (true) {
+            String inputLine;
+            while ((inputLine = fromSocketFromClient.readLine()) != null) { //input
                 // INPUT
-                String inputLine = fromsocketFromClient.readLine();
-
-                // تحقق من قيمة readLine. القيمة null تعني أن العميل أغلق الاتصال.
-                if (inputLine == null) {
-                    System.out.println("socketFromClient disconnected gracefully.");
-                    break;
-                }
 
                 // PROCESSING
                 String serverMessage = engin.reply(inputLine);
 
                 // OUTPUT
-                System.out.println("CLIENT: " + inputLine);
-                System.out.println("SERVER: " + serverMessage);
-                tosocketFromClient.println(serverMessage); // الآن سيتم إرسالها فوراً بسبب auto-flush
+                log("CLIENT sent: " + inputLine);
+                log("SERVER replied: " + serverMessage);
+                toSocketFromClient.println(serverMessage);
 
                 if (serverMessage.trim().equalsIgnoreCase("exit")) {
-                    System.out.println("Closing connection by socketFromClient request.");
+                    log("Exit command received.");
                     break;
                 }
             }
         } catch (IOException e) {
-            System.err.println("socketFromClient IO Error: " + e.getMessage());
+            log("IO Error: " + e.getMessage());
         }finally {
             try {
                 socketFromClient.close();
-                System.out.println("socketFromClient closed.");
+                log("Socket closed.");
             } catch (IOException e) {
-                System.err.println("Socket cannot close: " + e.getMessage());
+                log("Error closing socket: " + e.getMessage());
             }
-            counter --;
+            int remaining = counter.decrementAndGet();
+            log("Connection finished. Remaining clients: " + remaining);
+
+            if (hasStarted && remaining == 0) {
+                log("SHUTTING DOWN SERVER: No more clients.");
+                System.exit(0);
+            }
         }
     }
 
