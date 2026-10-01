@@ -5,21 +5,27 @@ import com.seniorsteps.network.handler.SocketHandler;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class Main {
     static void main() {
-        try (ServerSocket serverSocket = new ServerSocket(7777)) {
-            System.out.println("Waiting for connection...");
-            while (true) {
-                System.out.println("Server is running and listening on port 7777...");
-                Socket client = serverSocket.accept();
-                SocketHandler socketHandler = new SocketHandler(client);
-                Thread thread = new Thread(socketHandler);
-                thread.start();
-                System.out.println(SocketHandler.getCounter() + " Client connected");
+        try(
+            ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+            ServerSocket serverSocket = new ServerSocket(7777)
+
+        ){
+            IO.println("Server is running and listening on port 7777...");
+            IO.println("Using Java Virtual Threads for high scalability.");
+
+            while(true){
+                Socket clientSocket = serverSocket.accept();
+                SocketHandler socketHandler = new SocketHandler(clientSocket);
+                executor.submit(socketHandler);
+                System.out.println("Current active connections: " + SocketHandler.getCounter());
             }
         } catch (IOException e) {
-            System.err.println("Server Setup Error: " + e.getMessage());
+            throw new RuntimeException(e);
         }
     }
 }
